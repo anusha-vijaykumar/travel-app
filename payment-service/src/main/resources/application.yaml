@@ -1,0 +1,54 @@
+server:
+  port: 8084
+spring:
+  application:
+    name: payment-service
+  datasource:
+    url: jdbc:mysql://localhost:3306/travel_app_payment_db
+    username: root
+    password:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+eureka:
+  instance:
+    appname: payment-service
+    hostname: localhost
+    preferIpAddress: false
+    leaseRenewalIntervalInSeconds: 10
+    leaseExpirationDurationInSeconds: 30
+  client:
+    enabled: true
+    serviceUrl:
+      defaultZone: http://localhost:8761/eureka/
+    register-with-eureka: true
+    fetch-registry: true
+    registry-fetch-interval-seconds: 5
+    instance-info-replication-interval-seconds: 10
+  fetch-timeout-ms: 5000
+
+resilience4j:
+  retry:
+    instances:
+      paymentRetry:
+        maxAttempts: 3
+        waitDuration: 2s # Wait 2 seconds between retries
+        retryExceptions:
+          - feign.FeignException.ServiceUnavailable
+          - feign.RetryableException
+  circuitbreaker:
+    instances:
+      paymentCircuitBreaker:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10          # Track last 10 requests
+        failureRateThreshold: 50       # Open circuit if 50% of the last 10 requests fail
+        slowCallRateThreshold: 75      # Open circuit if 75% of calls take too long
+        slowCallDurationThreshold: 3s  # What qualifies as a "slow call"
+        waitDurationInOpenState: 15s   # Keep circuit open for 15 seconds before trying again
+        permittedNumberOfCallsInHalfOpenState: 3
+
+
