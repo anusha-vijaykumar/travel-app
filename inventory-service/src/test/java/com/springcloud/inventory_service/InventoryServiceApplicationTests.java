@@ -1,13 +1,16 @@
 package com.springcloud.inventory_service;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 
-@SpringBootTest
+import static org.assertj.core.api.Assertions.assertThat;
+
 class InventoryServiceApplicationTests {
 
-	@Test
-	void contextLoads() {
-	}
-
+    @Test
+    void applicationClassHasExpectedSpringAnnotations() {
+        assertThat(InventoryServiceApplication.class).hasAnnotation(SpringBootApplication.class);
+        assertThat(InventoryServiceApplication.class).hasAnnotation(EnableDiscoveryClient.class);
+    }
 }

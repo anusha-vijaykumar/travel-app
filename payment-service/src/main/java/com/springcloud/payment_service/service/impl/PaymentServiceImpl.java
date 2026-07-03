@@ -1,11 +1,13 @@
 package com.springcloud.payment_service.service.impl;
 
 import com.springcloud.payment_service.dto.PaymentDto;
+import com.springcloud.payment_service.dto.PaymentResultEvent;
 import com.springcloud.payment_service.entity.Payment;
 import com.springcloud.payment_service.entity.PaymentStatus;
 import com.springcloud.payment_service.repository.PaymentRepository;
+import com.springcloud.payment_service.service.OutboxEventService;
 import com.springcloud.payment_service.service.PaymentService;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,10 +18,21 @@ import java.util.Optional;
 import java.util.Random;
 
 @Service
-@RequiredArgsConstructor
 public class PaymentServiceImpl implements PaymentService {
     private final PaymentRepository paymentRepository;
-    private Random random =  new Random();
+    private final OutboxEventService outboxEventService;
+    private final Random random;
+
+    @Autowired
+    public PaymentServiceImpl(PaymentRepository paymentRepository, OutboxEventService outboxEventService) {
+        this(paymentRepository, outboxEventService, new Random());
+    }
+
+    public PaymentServiceImpl(PaymentRepository paymentRepository, OutboxEventService outboxEventService, Random random) {
+        this.paymentRepository = paymentRepository;
+        this.outboxEventService = outboxEventService;
+        this.random = random;
+    }
 
     @Override
     @Transactional // Added transactional support for database consistency
@@ -52,8 +65,18 @@ public class PaymentServiceImpl implements PaymentService {
 
             paymentDto.setStatus(PaymentStatus.FAILED);
             paymentDto.setCreatedAt(now);
-            throw new ResponseStatusException(HttpStatus.PAYMENT_REQUIRED, "Payment processing failed. Please try again.");
         }
+
+        outboxEventService.savePaymentResultEvent(toPaymentResultEvent(paymentDto));
+    }
+
+    private PaymentResultEvent toPaymentResultEvent(PaymentDto paymentDto) {
+        String bookingStatus = paymentDto.getStatus() == PaymentStatus.SUCCESS ? "CONFIRMED" : "PAYMENT_FAILED";
+        return new PaymentResultEvent(
+                paymentDto.getBookingId(),
+                paymentDto.getStatus().name(),
+                bookingStatus
+        );
     }
 
 

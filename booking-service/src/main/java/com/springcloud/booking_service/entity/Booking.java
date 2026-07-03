@@ -19,6 +19,7 @@ public class Booking {
     private Long userId;
     private Long tourId;
     private Integer seatsBooked;
+    @Enumerated(EnumType.STRING)
     private BookingStatus bookingStatus;
     private Timestamp createdAt;
     @Column(unique = true)

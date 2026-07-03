@@ -14,6 +14,23 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
+  kafka:
+    consumer:
+       bootstrap-servers: localhost:9092
+       group-id: payment-consumer
+       auto-offset-reset: earliest
+       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+       value-deserializer: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
+       properties:
+         spring.json.trusted.packages: com.springcloud.payment_service.dto,com.springcloud.booking_service.dto
+         spring.json.use.type.headers: false
+         spring.json.value.default.type: com.springcloud.payment_service.dto.PaymentEvent
+    topic:
+      name: booking-topic
+    producer:
+      bootstrap-servers: localhost:9092
+    payment-result-topic:
+      name: payment-result-topic
 eureka:
   instance:
     appname: payment-service
@@ -50,5 +67,3 @@ resilience4j:
         slowCallDurationThreshold: 3s  # What qualifies as a "slow call"
         waitDurationInOpenState: 15s   # Keep circuit open for 15 seconds before trying again
         permittedNumberOfCallsInHalfOpenState: 3
-
-

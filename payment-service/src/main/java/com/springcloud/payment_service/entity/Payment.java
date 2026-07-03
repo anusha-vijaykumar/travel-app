@@ -21,6 +21,7 @@ public class Payment {
     private Long id;
     private Long bookingId;
     private BigDecimal amount;
+    @Enumerated(EnumType.STRING)
     private PaymentStatus status;
     private LocalDateTime createdAt;
 }

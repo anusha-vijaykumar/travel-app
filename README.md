@@ -1,24 +1,21 @@
-# travel-app
-
 # Travel Booking Platform
 
-A cloud-native travel booking platform built using Java, Spring Boot, and Spring Cloud. The platform allows users to browse tours, reserve seats, make payments, and manage bookings using a microservices architecture.
+A cloud-native travel booking platform built with Java, Spring Boot, and Spring Cloud. The platform lets users browse tour inventory, reserve seats, process payments, and manage bookings through a microservices architecture.
 
 ---
 
 ## Features
 
-* User registration and management
+* User registration and lookup
 * Tour inventory management
-* Tour booking workflow
-* Payment processing
+* Booking workflow with seat reservation
+* Payment processing and refunds
 * Service discovery using Eureka
 * API Gateway routing
 * Inter-service communication using OpenFeign
-* Distributed transaction handling using Saga Pattern (planned)
-* Event-driven architecture using Kafka (planned)
-* Caching with Redis (planned)
-* Resilience patterns using Resilience4j (planned)
+* Event-driven payment workflow using Kafka
+* Transactional outbox pattern for reliable Kafka publishing
+* Resilience patterns using Resilience4j
 
 ---
 
@@ -35,11 +32,23 @@ A cloud-native travel booking platform built using Java, Spring Boot, and Spring
                             |
         ---------------------------------------------
         |               |              |            |
-        |               |              |            |
 +-------v------+ +------v------+ +-----v------+ +---v------+
-| User Service | | Tour Service| | Booking   | | Payment  |
-|              | |             | | Service   | | Service  |
+| User Service | | Inventory   | | Booking   | | Payment  |
+|              | | Service     | | Service   | | Service  |
 +--------------+ +-------------+ +------------+ +----------+
+                                      |              ^
+                                      | booking-topic|
+                                      v              |
+                                +-----+--------------+-----+
+                                |          Kafka           |
+                                +-----+--------------+-----+
+                                      ^              |
+                                      | payment-result-topic
+                                      |              v
+                                +-----+--------------+
+                                | Booking Service    |
+                                | result consumer    |
+                                +--------------------+
 ```
 
 ---
@@ -57,30 +66,30 @@ Responsible for:
 #### Endpoints
 
 ```http
-POST /users
-GET /users/{id}
-GET /users/email/{email}
+POST /api/users
+GET /api/users/{id}
+GET /api/users/email/{email}
 ```
 
 ---
 
-### Tour Service
+### Inventory Service
 
 Responsible for:
 
-* Creating tours
-* Managing tour inventory
+* Creating tour inventory
+* Looking up inventory by ID or tour package ID
 * Reserving seats
-* Releasing seats
+* Releasing seats when compensation is needed
 
 #### Endpoints
 
 ```http
-POST /tours
-GET /tours/{id}
-GET /tours
-POST /tours/{id}/reserve
-POST /tours/{id}/release
+POST /api/inventories
+GET /api/inventories/{id}
+GET /api/inventories/by-tour/{tourPackageId}
+POST /api/inventories/reserve?tourPackageId={id}&seats={count}
+POST /api/inventories/release?tourPackageId={id}&seats={count}
 ```
 
 ---
@@ -90,26 +99,29 @@ POST /tours/{id}/release
 Responsible for:
 
 * Creating bookings
-* Booking validation
-* Booking status management
-* Orchestrating booking workflow
+* Validating requested payment amount against inventory price
+* Reserving seats through Inventory Service
+* Persisting booking payment requests to an outbox table
+* Publishing payment request events to Kafka
+* Consuming payment result events and updating booking status
 
 #### Booking Statuses
 
 ```text
 PENDING
+PAYMENT_REQUESTED
 CONFIRMED
-FAILED
 CANCELLED
+PAYMENT_FAILED
 ```
 
 #### Endpoints
 
 ```http
-POST /bookings
-GET /bookings/{id}
-GET /bookings?userId={id}
-POST /bookings/{id}/cancel
+POST /api/bookings
+GET /api/bookings/{id}
+GET /api/bookings?userId={id}
+PUT /api/bookings/{id}/cancel
 ```
 
 ---
@@ -118,8 +130,11 @@ POST /bookings/{id}/cancel
 
 Responsible for:
 
+* Consuming booking payment request events
 * Processing payments
-* Refunding payments
+* Persisting payment result events to an outbox table
+* Publishing payment result events to Kafka
+* Refunding successful payments
 * Tracking payment status
 
 #### Payment Statuses
@@ -133,9 +148,9 @@ REFUNDED
 #### Endpoints
 
 ```http
-POST /payments
-GET /payments/{bookingId}
-POST /payments/{bookingId}/refund
+POST /api/payments
+GET /api/payments/{bookingId}
+PUT /api/payments/{bookingId}/refund
 ```
 
 ---
@@ -146,42 +161,80 @@ POST /payments/{bookingId}/refund
 Create Booking Request
         |
         v
+Validate Tour Inventory and Amount
+        |
+        v
 Reserve Tour Seats
         |
         v
-Process Payment
+Save Booking + Booking Outbox Event
         |
         v
-Payment Successful?
-     /        \
-   YES         NO
-    |           |
-    v           v
-Booking     Release Seats
-Confirmed        |
-                 v
-           Booking Failed
+Booking Outbox Publisher -> Kafka booking-topic
+        |
+        v
+Payment Service Consumer
+        |
+        v
+Save Payment + Payment Outbox Event
+        |
+        v
+Payment Outbox Publisher -> Kafka payment-result-topic
+        |
+        v
+Booking Service Payment Result Consumer
+        |
+        v
+Update Booking Status
 ```
 
-This workflow prevents overselling and demonstrates a Saga-style compensation pattern.
+If payment succeeds, the booking is marked `CONFIRMED`. If payment fails, the booking is marked `PAYMENT_FAILED`.
+
+---
+
+## Transactional Outbox
+
+The project uses the transactional outbox pattern in both Booking Service and Payment Service.
+
+### Booking Outbox
+
+* Booking creation and `PAYMENT_REQUESTED` outbox insert happen in one database transaction.
+* `OutboxPublisher` reads pending booking outbox rows.
+* `BookingProducer` publishes `PaymentEvent` messages to `booking-topic`.
+* Published rows are marked `PUBLISHED`; failed publishes remain `PENDING` with attempt/error details for retry.
+
+### Payment Outbox
+
+* Payment creation/update and payment result outbox insert happen in one database transaction.
+* `OutboxPublisher` reads pending payment outbox rows.
+* `PaymentResultProducer` publishes `PaymentResultEvent` messages to `payment-result-topic`.
+* Published rows are marked `PUBLISHED`; failed publishes remain `PENDING` with attempt/error details for retry.
+
+Current topics:
+
+```text
+booking-topic
+payment-result-topic
+```
 
 ---
 
 ## Technology Stack
 
-| Category          | Technology             |
-| ----------------- | ---------------------- |
-| Language          | Java 21                |
-| Framework         | Spring Boot 3          |
-| Service Discovery | Netflix Eureka         |
-| API Gateway       | Spring Cloud Gateway   |
-| Communication     | OpenFeign              |
-| Database          | MySQL                  |
-| Build Tool        | Maven                  |
-| Containerization  | Docker (Planned)       |
-| Messaging         | Kafka (Planned)        |
-| Cache             | Redis (Planned)        |
-| Resilience        | Resilience4j (Planned) |
+| Category          | Technology           |
+| ----------------- | -------------------- |
+| Language          | Java 21              |
+| Framework         | Spring Boot          |
+| Service Discovery | Netflix Eureka       |
+| API Gateway       | Spring Cloud Gateway |
+| Communication     | OpenFeign, Kafka     |
+| Database          | MySQL                |
+| Build Tool        | Maven                |
+| Messaging         | Kafka                |
+| Reliability       | Transactional Outbox |
+| Resilience        | Resilience4j         |
+| Containerization  | Docker (Planned)     |
+| Cache             | Redis (Planned)      |
 
 ---
 
@@ -192,32 +245,41 @@ This workflow prevents overselling and demonstrates a Saga-style compensation pa
 * Java 21
 * Maven
 * MySQL
-* Docker (future enhancement)
+* Kafka running on `localhost:9092`
 
 ### Start Infrastructure
 
-1. Start MySQL
-2. Start Eureka Server
+1. Start MySQL.
+2. Start Kafka.
+3. Start Eureka Server.
 
 ### Start Services
 
+Run each service from its own directory:
+
 ```bash
-# Start Eureka
+# Service Registry
+cd service-registry
 mvn spring-boot:run
 
-# Start User Service
+# API Gateway
+cd ../api-gateway
 mvn spring-boot:run
 
-# Start Tour Service
+# User Service
+cd ../user-service
 mvn spring-boot:run
 
-# Start Payment Service
+# Inventory Service
+cd ../inventory-service
 mvn spring-boot:run
 
-# Start Booking Service
+# Booking Service
+cd ../booking-service
 mvn spring-boot:run
 
-# Start API Gateway
+# Payment Service
+cd ../payment-service
 mvn spring-boot:run
 ```
 
@@ -229,7 +291,7 @@ Open:
 http://localhost:8761
 ```
 
-You should see all services registered successfully.
+You should see the services registered successfully.
 
 ---
 
@@ -239,14 +301,32 @@ Each microservice owns its own database schema.
 
 ```text
 mysql
-│
-├── user_db
-├── tour_db
-├── booking_db
-└── payment_db
+|-- user database
+|-- inventory database
+|-- booking database
+|   `-- outbox_event
+`-- payment database
+    `-- outbox_event
 ```
 
-This ensures service isolation and follows microservice best practices.
+This keeps service data isolated and allows each service to publish its own reliable integration events.
+
+---
+
+## Testing
+
+Run tests for an individual service from that service directory:
+
+```bash
+mvn test
+```
+
+Example:
+
+```bash
+cd payment-service
+mvn test
+```
 
 ---
 
@@ -254,16 +334,16 @@ This ensures service isolation and follows microservice best practices.
 
 ### Distributed Transactions
 
-* Saga Pattern
-* Compensating actions
 * Reservation timeout handling
+* Additional compensating actions
+* Stronger idempotency around event consumers
 
 ### Event-Driven Architecture
 
-* Kafka Producer/Consumer
-* Booking Created Events
-* Payment Processed Events
-* Notification Events
+* Notification events
+* Dead-letter topics
+* Outbox cleanup/archival
+* Consumer retry policies
 
 ### Caching
 
@@ -271,16 +351,9 @@ This ensures service isolation and follows microservice best practices.
 * Reduced database load
 * Improved response times
 
-### Resilience
-
-* Retry policies
-* Circuit Breakers
-* Fallback mechanisms
-* Timeout handling
-
 ### Security
 
-* JWT Authentication
+* JWT authentication
 * Role-based access control
 * API Gateway authorization
 
@@ -293,7 +366,7 @@ This ensures service isolation and follows microservice best practices.
 ### Deployment
 
 * Docker Compose
-* Kubernetes (future)
+* Kubernetes
 * CI/CD pipeline
 
 ---
@@ -302,15 +375,16 @@ This ensures service isolation and follows microservice best practices.
 
 This project was built to gain hands-on experience with:
 
-* Microservice Architecture
-* Spring Cloud Ecosystem
-* Service Discovery
-* API Gateway Patterns
-* Distributed Transactions
-* Event-Driven Systems
-* Resilience Patterns
-* Cloud-Native Development
-* Backend System Design
+* Microservice architecture
+* Spring Cloud ecosystem
+* Service discovery
+* API Gateway patterns
+* OpenFeign service-to-service calls
+* Kafka-based event-driven systems
+* Transactional outbox pattern
+* Saga-style workflow design
+* Resilience patterns
+* Backend system design
 
 ---
 
@@ -321,21 +395,24 @@ This project was built to gain hands-on experience with:
 * API Gateway
 * Eureka Service Registry
 * User Service
-* Tour Service
+* Inventory Service
 * Booking Service
 * Payment Service
-* OpenFeign Integration
-* Booking Workflow
-* Seat Reservation Logic
-* Payment Compensation Logic
+* OpenFeign integration
+* Booking workflow
+* Seat reservation and release logic
+* Kafka payment request and payment result topics
+* Booking outbox publisher
+* Payment outbox publisher
+* Payment result consumer that updates booking status
+* Service-level unit tests
 
 ### In Progress
 
-* Saga Pattern
-* Kafka Integration
-* Redis Caching
-* Resilience4j
+* Notification Service
+* Redis caching
 * Dockerization
+* Production-grade observability
 
 ---
 
