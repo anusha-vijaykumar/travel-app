@@ -4,6 +4,7 @@ import com.springcloud.payment_service.dto.PaymentDto;
 import com.springcloud.payment_service.dto.PaymentResultEvent;
 import com.springcloud.payment_service.entity.Payment;
 import com.springcloud.payment_service.entity.PaymentStatus;
+import com.springcloud.payment_service.exception.PaymentTransientException;
 import com.springcloud.payment_service.repository.PaymentRepository;
 import com.springcloud.payment_service.service.impl.PaymentServiceImpl;
 import org.junit.jupiter.api.Test;
@@ -46,8 +47,8 @@ class PaymentServiceImplTest {
     }
 
     @Test
-    void createPaymentSavesFailedPaymentWhenChanceIsAtOrAboveThreshold() {
-        when(random.nextInt(100)).thenReturn(70);
+    void createPaymentSavesBusinessFailedPaymentWhenChanceIsBetweenBusinessFailureThresholds() {
+        when(random.nextInt(100)).thenReturn(89);
         when(paymentRepository.getPaymentByBookingId(1L)).thenReturn(null);
         when(paymentRepository.save(any(Payment.class))).thenAnswer(invocation -> invocation.getArgument(0));
         PaymentDto paymentDto = new PaymentDto(null, 1L, BigDecimal.valueOf(100), null, null);
@@ -60,6 +61,19 @@ class PaymentServiceImplTest {
         ArgumentCaptor<PaymentResultEvent> captor = ArgumentCaptor.forClass(PaymentResultEvent.class);
         verify(outboxEventService).savePaymentResultEvent(captor.capture());
         assertThat(captor.getValue().getBookingStatus()).isEqualTo("PAYMENT_FAILED");
+    }
+
+    @Test
+    void createPaymentThrowsTransientExceptionWithoutSavingWhenChanceIsAtTransientThreshold() {
+        when(random.nextInt(100)).thenReturn(90);
+        PaymentDto paymentDto = new PaymentDto(null, 1L, BigDecimal.valueOf(100), null, null);
+
+        assertThatThrownBy(() -> paymentService.createPayment(paymentDto))
+                .isInstanceOf(PaymentTransientException.class)
+                .hasMessageContaining("bookingId=1");
+
+        verify(paymentRepository, never()).save(any(Payment.class));
+        verify(outboxEventService, never()).savePaymentResultEvent(any(PaymentResultEvent.class));
     }
 
     @Test

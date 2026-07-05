@@ -1,7 +1,9 @@
 package com.springcloud.payment_service.config;
 
 import com.springcloud.payment_service.dto.PaymentEvent;
+import com.springcloud.payment_service.exception.PaymentTransientException;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -9,7 +11,11 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
+import org.springframework.kafka.listener.DefaultErrorHandler;
 import org.springframework.kafka.support.serializer.JacksonJsonDeserializer;
+import org.springframework.util.backoff.FixedBackOff;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -22,6 +28,9 @@ public class KafkaConsumerConfig {
 
     @Value("${spring.kafka.consumer.group-id}")
     private String groupId;
+
+    @Value("${spring.kafka.payment-dead-letter-topic.name}")
+    private String paymentDeadLetterTopicName;
 
     @Bean
     public ConsumerFactory<String, PaymentEvent> paymentEventConsumerFactory() {
@@ -39,10 +48,33 @@ public class KafkaConsumerConfig {
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, PaymentEvent> kafkaListenerContainerFactory(
+            ConsumerFactory<String, PaymentEvent> paymentEventConsumerFactory,
+            DefaultErrorHandler paymentEventErrorHandler) {
+        ConcurrentKafkaListenerContainerFactory<String, PaymentEvent> factory =
+                new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(paymentEventConsumerFactory);
+        factory.setCommonErrorHandler(paymentEventErrorHandler);
+        return factory;
+    }
+
+    @Bean
+    public ConcurrentKafkaListenerContainerFactory<String, PaymentEvent> paymentDeadLetterKafkaListenerContainerFactory(
             ConsumerFactory<String, PaymentEvent> paymentEventConsumerFactory) {
         ConcurrentKafkaListenerContainerFactory<String, PaymentEvent> factory =
                 new ConcurrentKafkaListenerContainerFactory<>();
         factory.setConsumerFactory(paymentEventConsumerFactory);
         return factory;
+    }
+
+    @Bean
+    public DefaultErrorHandler paymentEventErrorHandler(KafkaTemplate<String, PaymentEvent> paymentDeadLetterKafkaTemplate) {
+        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(
+                paymentDeadLetterKafkaTemplate,
+                (record, exception) -> new TopicPartition(paymentDeadLetterTopicName, record.partition())
+        );
+        DefaultErrorHandler errorHandler = new DefaultErrorHandler(recoverer, new FixedBackOff(0L, 1L));
+        errorHandler.defaultFalse();
+        errorHandler.addRetryableExceptions(PaymentTransientException.class);
+        return errorHandler;
     }
 }

@@ -4,6 +4,7 @@ import com.springcloud.payment_service.dto.PaymentDto;
 import com.springcloud.payment_service.dto.PaymentResultEvent;
 import com.springcloud.payment_service.entity.Payment;
 import com.springcloud.payment_service.entity.PaymentStatus;
+import com.springcloud.payment_service.exception.PaymentTransientException;
 import com.springcloud.payment_service.repository.PaymentRepository;
 import com.springcloud.payment_service.service.OutboxEventService;
 import com.springcloud.payment_service.service.PaymentService;
@@ -37,8 +38,12 @@ public class PaymentServiceImpl implements PaymentService {
     @Override
     @Transactional // Added transactional support for database consistency
     public void createPayment(PaymentDto paymentDto) {
-        // 70% success rate, 30% failure rate
+        // 70% success, 20% business failure, 10% transient failure.
         int chance = random.nextInt(100);
+
+        if (chance >= 90) {
+            throw new PaymentTransientException("Transient payment processor failure for bookingId=" + paymentDto.getBookingId());
+        }
 
         // FIX: Look up an existing record for this booking, or build a new one if missing
         Optional<Payment> existingPayment = Optional.ofNullable(paymentRepository.getPaymentByBookingId(paymentDto.getBookingId()));

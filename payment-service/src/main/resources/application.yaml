@@ -31,6 +31,8 @@ spring:
       bootstrap-servers: localhost:9092
     payment-result-topic:
       name: payment-result-topic
+    payment-dead-letter-topic:
+      name: payment-dead-letter-topic
 eureka:
   instance:
     appname: payment-service
