@@ -14,8 +14,10 @@ A cloud-native travel booking platform built with Java, Spring Boot, and Spring 
 * API Gateway routing
 * Inter-service communication using OpenFeign
 * Event-driven payment workflow using Kafka
+* **Idempotent Kafka consumers** - Exactly-once semantics with event deduplication
 * Transactional outbox pattern for reliable Kafka publishing
 * Resilience patterns using Resilience4j
+* Distributed event tracking for idempotency guarantee
 
 ---
 
@@ -219,6 +221,43 @@ payment-result-topic
 
 ---
 
+## Idempotent Kafka Consumers
+
+The project implements **exactly-once semantic** message processing despite Kafka's at-least-once delivery guarantee through event deduplication.
+
+### How It Works
+
+1. **Event ID Generation**: Each event carries a unique UUID (`eventId`) from source to consumer
+2. **Duplicate Detection**: Consumers check the `processed_events` table before processing
+3. **Atomic Processing**: Consumer operations (check + process + record) happen in a single database transaction
+4. **Replay Safety**: If a message is replayed, the duplicate check prevents repeated business logic execution
+
+### Consumer Implementation
+
+**Booking Service - PaymentResultConsumer**:
+- Consumes payment results from `payment-result-topic`
+- Checks if `PaymentResultEvent.eventId` was already processed
+- Updates booking status if new event; skips if duplicate
+
+**Payment Service - PaymentConsumer**:
+- Consumes payment requests from `booking-topic`
+- Checks if `PaymentEvent.eventId` was already processed
+- Creates payment record if new event; skips if duplicate
+
+### Without This: What Could Go Wrong
+
+- **Duplicate Bookings**: Message replayed → 2 identical bookings created
+- **Double Charges**: Payment processed twice due to Kafka rebalancing
+- **Inconsistent State**: Some services processed event, others didn't
+
+### With This: Guaranteed Safety
+
+- First delivery → processed normally
+- All subsequent deliveries of same message → safely ignored
+- System state remains consistent regardless of message replays
+
+---
+
 ## Technology Stack
 
 | Category          | Technology           |
@@ -304,12 +343,25 @@ mysql
 |-- user database
 |-- inventory database
 |-- booking database
-|   `-- outbox_event
+|   |-- booking
+|   |-- outbox_event
+|   `-- processed_events (for idempotency)
 `-- payment database
-    `-- outbox_event
+    |-- payment
+    |-- outbox_event
+    |-- dead_letter_payment_event
+    `-- processed_events (for idempotency)
 ```
 
 This keeps service data isolated and allows each service to publish its own reliable integration events.
+
+### Idempotency Tracking
+
+The `processed_events` table in Booking Service and Payment Service tracks successfully processed Kafka messages:
+
+- **event_id (PRIMARY KEY)**: Uniquely identifies each event (UUID)
+- **processed_at**: Timestamp when the event was processed
+- Prevents duplicate processing by using database constraint enforcement
 
 ---
 
@@ -382,9 +434,12 @@ This project was built to gain hands-on experience with:
 * OpenFeign service-to-service calls
 * Kafka-based event-driven systems
 * Transactional outbox pattern
+* **Event deduplication and idempotent consumers**
+* **Exactly-once semantics with at-least-once delivery**
 * Saga-style workflow design
 * Resilience patterns
 * Backend system design
+* Database per service pattern
 
 ---
 
@@ -399,20 +454,28 @@ This project was built to gain hands-on experience with:
 * Booking Service
 * Payment Service
 * OpenFeign integration
-* Booking workflow
+* Booking workflow with full transaction lifecycle
 * Seat reservation and release logic
 * Kafka payment request and payment result topics
-* Booking outbox publisher
-* Payment outbox publisher
+* Booking outbox publisher with retry logic
+* Payment outbox publisher with retry logic
 * Payment result consumer that updates booking status
-* Service-level unit tests
+* **Idempotent Kafka consumers** with event deduplication
+* ProcessedEvents table for duplicate detection in both Payment and Booking services
+* JPA entity-based database schema management (Hibernate ddl-auto)
+* Service-level unit tests (32+ tests passing)
+* Dead letter queue for failed payment events
+
+### Architectural Decisions
+
+**Schema Management**: All services use JPA entities with Hibernate's `ddl-auto: update` for schema management. This provides consistency across the codebase - all tables (business entities and idempotency tracking tables) are defined as JPA entities rather than manual SQL migrations.
 
 ### In Progress
 
-* Notification Service
-* Redis caching
-* Dockerization
-* Production-grade observability
+* Notification Service enhancements
+* Redis caching for frequently accessed tour data
+* Dockerization with Docker Compose
+* Production-grade observability (Prometheus, Grafana, distributed tracing)
 
 ---
 

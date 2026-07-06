@@ -26,7 +26,7 @@ class OutboxEventServiceTest {
         when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         OutboxEvent outboxEvent = outboxEventService.savePaymentResultEvent(
-                new PaymentResultEvent(1L, "SUCCESS", "CONFIRMED")
+                new PaymentResultEvent("test-event-id", 1L, "SUCCESS", "CONFIRMED")
         );
 
         assertThat(outboxEvent.getAggregateType()).isEqualTo("PAYMENT");

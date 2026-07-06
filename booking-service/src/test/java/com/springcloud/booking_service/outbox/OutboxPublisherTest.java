@@ -66,7 +66,7 @@ class OutboxPublisherTest {
         outboxEvent.setAggregateId(10L);
         outboxEvent.setEventType("PAYMENT_REQUESTED");
         outboxEvent.setTopic("booking-topic");
-        outboxEvent.setPayload(objectMapper.writeValueAsString(new PaymentEvent(10L, BigDecimal.valueOf(100))));
+        outboxEvent.setPayload(objectMapper.writeValueAsString(new PaymentEvent("test-event-id", 10L, BigDecimal.valueOf(100))));
         outboxEvent.setStatus(OutboxStatus.PENDING);
         outboxEvent.setAttempts(0);
         outboxEvent.setCreatedAt(LocalDateTime.now());

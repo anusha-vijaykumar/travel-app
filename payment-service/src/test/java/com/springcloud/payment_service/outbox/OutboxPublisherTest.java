@@ -67,7 +67,7 @@ class OutboxPublisherTest {
         outboxEvent.setEventType("PAYMENT_COMPLETED");
         outboxEvent.setTopic("payment-result-topic");
         outboxEvent.setPayload(objectMapper.writeValueAsString(
-                new PaymentResultEvent(10L, "SUCCESS", "CONFIRMED")
+                new PaymentResultEvent("test-event-id", 10L, "SUCCESS", "CONFIRMED")
         ));
         outboxEvent.setStatus(OutboxStatus.PENDING);
         outboxEvent.setAttempts(0);

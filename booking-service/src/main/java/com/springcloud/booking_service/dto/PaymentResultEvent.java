@@ -8,6 +8,8 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @NoArgsConstructor
 public class PaymentResultEvent {
+    // Event id provided by the producer (Payment Service) to enable idempotency checks
+    private String eventId;
     private Long bookingId;
     private String paymentStatus;
     private String bookingStatus;

@@ -3,6 +3,7 @@ package com.springcloud.payment_service.kafka;
 import com.springcloud.payment_service.dto.PaymentDto;
 import com.springcloud.payment_service.dto.PaymentEvent;
 import com.springcloud.payment_service.entity.PaymentStatus;
+import com.springcloud.payment_service.repository.ProcessedEventRepository;
 import com.springcloud.payment_service.service.PaymentService;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -18,7 +19,8 @@ import static org.mockito.Mockito.verify;
 class PaymentConsumerTest {
 
     private final PaymentService paymentService = mock(PaymentService.class);
-    private final PaymentConsumer paymentConsumer = new PaymentConsumer(paymentService);
+    private final ProcessedEventRepository processedEventRepository = mock(ProcessedEventRepository.class);
+    private final PaymentConsumer paymentConsumer = new PaymentConsumer(paymentService, processedEventRepository);
 
     @Test
     void consumeCreatesPaymentForPaymentEvent() {
@@ -28,7 +30,7 @@ class PaymentConsumerTest {
             return null;
         }).when(paymentService).createPayment(any(PaymentDto.class));
 
-        paymentConsumer.consume(new PaymentEvent(1L, BigDecimal.valueOf(100)));
+        paymentConsumer.consume(new PaymentEvent("test-event-id", 1L, BigDecimal.valueOf(100)));
 
         ArgumentCaptor<PaymentDto> captor = ArgumentCaptor.forClass(PaymentDto.class);
         verify(paymentService).createPayment(captor.capture());
@@ -44,7 +46,7 @@ class PaymentConsumerTest {
             return null;
         }).when(paymentService).createPayment(any(PaymentDto.class));
 
-        paymentConsumer.consume(new PaymentEvent(1L, BigDecimal.valueOf(100)));
+        paymentConsumer.consume(new PaymentEvent("test-event-id", 1L, BigDecimal.valueOf(100)));
 
         verify(paymentService).createPayment(any(PaymentDto.class));
     }

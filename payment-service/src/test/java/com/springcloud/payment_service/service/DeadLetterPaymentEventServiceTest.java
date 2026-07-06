@@ -30,7 +30,7 @@ class DeadLetterPaymentEventServiceTest {
                 2,
                 15L,
                 "booking-1",
-                new PaymentEvent(1L, BigDecimal.valueOf(100))
+                new PaymentEvent("test-event-id", 1L, BigDecimal.valueOf(100))
         );
         record.headers().add(KafkaHeaders.DLT_ORIGINAL_TOPIC, "booking-topic".getBytes());
         record.headers().add(KafkaHeaders.DLT_EXCEPTION_FQCN, "com.springcloud.payment_service.exception.PaymentTransientException".getBytes());

@@ -28,7 +28,7 @@ class OutboxEventServiceTest {
         when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         OutboxEvent outboxEvent = outboxEventService.savePaymentRequestedEvent(
-                new PaymentEvent(1L, BigDecimal.valueOf(100))
+                new PaymentEvent("test-event-id", 1L, BigDecimal.valueOf(100))
         );
 
         assertThat(outboxEvent.getAggregateType()).isEqualTo("BOOKING");

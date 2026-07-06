@@ -120,7 +120,9 @@ public class BookingServiceImpl implements BookingService {
     private void saveBookingAndOutboxEventInTransaction(BookingDto booking) {
         transactionTemplate.executeWithoutResult(status -> {
             Booking savedBooking = saveBooking(booking);
-            outboxEventService.savePaymentRequestedEvent(new PaymentEvent(savedBooking.getId(), booking.getAmount()));
+            // Generate a UUID eventId for this PaymentEvent so downstream consumers can de-duplicate
+            String eventId = java.util.UUID.randomUUID().toString();
+            outboxEventService.savePaymentRequestedEvent(new PaymentEvent(eventId, savedBooking.getId(), booking.getAmount()));
         });
     }
 

@@ -23,7 +23,7 @@ class PaymentDeadLetterConsumerTest {
                 0,
                 1L,
                 "booking-1",
-                new PaymentEvent(1L, BigDecimal.valueOf(100))
+                new PaymentEvent("test-event-id", 1L, BigDecimal.valueOf(100))
         );
 
         paymentDeadLetterConsumer.consume(record);

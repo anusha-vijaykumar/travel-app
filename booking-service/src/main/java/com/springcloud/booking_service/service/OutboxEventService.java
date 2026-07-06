@@ -22,6 +22,10 @@ public class OutboxEventService {
     private String paymentRequestTopic;
 
     public OutboxEvent savePaymentRequestedEvent(PaymentEvent paymentEvent) {
+        // Ensure the event has an eventId so consumers can perform idempotency checks
+        if (paymentEvent.getEventId() == null) {
+            paymentEvent.setEventId(java.util.UUID.randomUUID().toString());
+        }
         OutboxEvent outboxEvent = new OutboxEvent();
         outboxEvent.setAggregateType("BOOKING");
         outboxEvent.setAggregateId(paymentEvent.getBookingId());

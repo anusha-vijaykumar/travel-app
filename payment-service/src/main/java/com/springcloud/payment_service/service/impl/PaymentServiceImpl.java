@@ -77,7 +77,10 @@ public class PaymentServiceImpl implements PaymentService {
 
     private PaymentResultEvent toPaymentResultEvent(PaymentDto paymentDto) {
         String bookingStatus = paymentDto.getStatus() == PaymentStatus.SUCCESS ? "CONFIRMED" : "PAYMENT_FAILED";
+        // Generate an eventId for the payment result so consumers can perform idempotency checks
+        String eventId = java.util.UUID.randomUUID().toString();
         return new PaymentResultEvent(
+                eventId,
                 paymentDto.getBookingId(),
                 paymentDto.getStatus().name(),
                 bookingStatus

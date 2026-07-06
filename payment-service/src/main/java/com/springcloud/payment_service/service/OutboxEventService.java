@@ -22,6 +22,10 @@ public class OutboxEventService {
     private String paymentResultTopic;
 
     public OutboxEvent savePaymentResultEvent(PaymentResultEvent paymentResultEvent) {
+        // Ensure the event has an eventId so downstream consumers can de-duplicate
+        if (paymentResultEvent.getEventId() == null) {
+            paymentResultEvent.setEventId(java.util.UUID.randomUUID().toString());
+        }
         OutboxEvent outboxEvent = new OutboxEvent();
         outboxEvent.setAggregateType("PAYMENT");
         outboxEvent.setAggregateId(paymentResultEvent.getBookingId());
