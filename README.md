@@ -1,113 +1,175 @@
 # Travel Booking Platform
 
-A cloud-native travel booking platform built with Java, Spring Boot, and Spring Cloud. The platform lets users browse tour inventory, reserve seats, process payments, and manage bookings through a microservices architecture.
+A Java/Spring microservices travel booking platform. The system supports user lookup, tour inventory, booking creation, seat reservation, payment processing, notifications, service discovery, API gateway routing, Kafka-based workflows, and local observability tooling.
 
----
+## What Is Included
 
-## Features
-
-* User registration and lookup
-* Tour inventory management
-* Booking workflow with seat reservation
-* Payment processing and refunds
-* Service discovery using Eureka
-* API Gateway routing
-* Inter-service communication using OpenFeign
-* Event-driven payment workflow using Kafka
-* **Idempotent Kafka consumers** - Exactly-once semantics with event deduplication
-* Transactional outbox pattern for reliable Kafka publishing
-* Resilience patterns using Resilience4j
-* Distributed event tracking for idempotency guarantee
-
----
+- Eureka service registry
+- Spring Cloud Gateway API gateway
+- User, Inventory, Booking, Payment, and Notification services
+- MySQL database per service
+- Kafka payment workflow with transactional outbox publishing
+- Idempotent Kafka consumers backed by `processed_events` tables
+- Payment dead-letter topic handling
+- OpenFeign service-to-service calls
+- Resilience4j retry and circuit breaker configuration
+- Micrometer, Prometheus, Grafana, and Zipkin observability
+- Local Docker Compose infrastructure for MySQL, Kafka, Kafka UI, Zipkin, MailHog, Prometheus, and Grafana
 
 ## Architecture
 
 ```text
-                    +----------------+
-                    |   API Gateway  |
-                    +-------+--------+
-                            |
-                    +-------+--------+
-                    | Eureka Server  |
-                    +-------+--------+
-                            |
-        ---------------------------------------------
-        |               |              |            |
-+-------v------+ +------v------+ +-----v------+ +---v------+
-| User Service | | Inventory   | | Booking   | | Payment  |
-|              | | Service     | | Service   | | Service  |
-+--------------+ +-------------+ +------------+ +----------+
-                                      |              ^
-                                      | booking-topic|
-                                      v              |
-                                +-----+--------------+-----+
-                                |          Kafka           |
-                                +-----+--------------+-----+
-                                      ^              |
-                                      | payment-result-topic
-                                      |              v
-                                +-----+--------------+
-                                | Booking Service    |
-                                | result consumer    |
-                                +--------------------+
+                            +----------------+
+                            |   API Gateway  |
+                            |   port 8083    |
+                            +-------+--------+
+                                    |
+                            +-------+--------+
+                            | Eureka Server  |
+                            |   port 8761    |
+                            +-------+--------+
+                                    |
+        ---------------------------------------------------------
+        |             |              |             |             |
++-------v------+ +----v---------+ +--v---------+ +-v--------+ +-v------------+
+| User Service | | Inventory    | | Booking    | | Payment  | | Notification |
+| port 8081    | | Service      | | Service    | | Service  | | Service      |
+|              | | port 8082    | | port 8085  | | port 8084 | | port 8086    |
++--------------+ +--------------+ +------+-----+ +----+-----+ +------+-------+
+                                           |            |              ^
+                                           |            |              |
+                                           v            v              |
+                                      booking-topic     payment-result-topic
+                                           |            |
+                                           v            v
+                                      +----------------------+
+                                      |        Kafka         |
+                                      |     localhost:9092   |
+                                      +----------------------+
 ```
-
----
 
 ## Services
 
-### User Service
+| Service | Port | Responsibility |
+| --- | ---: | --- |
+| Service Registry | `8761` | Eureka server for service discovery |
+| API Gateway | `8083` | Routes external API traffic to backend services |
+| User Service | `8081` | User creation and lookup |
+| Inventory Service | `8082` | Tour inventory, seat reservation, and release |
+| Booking Service | `8085` | Booking lifecycle, inventory calls, booking outbox, payment-result consumer |
+| Payment Service | `8084` | Payment processing, refunds, payment outbox, payment-request consumer |
+| Notification Service | `8086` | Consumes payment result events and sends/logs notification emails |
 
-Responsible for:
+## API Endpoints
 
-* User registration
-* User lookup by ID
-* User lookup by email
+Use the API gateway for external requests:
 
-#### Endpoints
-
-```http
-POST /api/users
-GET /api/users/{id}
-GET /api/users/email/{email}
+```text
+http://localhost:8083
 ```
 
----
+Each service can also be called directly on its own port during local development.
 
-### Inventory Service
+| Service | Direct Base URL | Gateway Route |
+| --- | --- | --- |
+| Service Registry | `http://localhost:8761` | Not routed through gateway |
+| API Gateway | `http://localhost:8083` | Gateway entry point |
+| User Service | `http://localhost:8081` | `/api/users/**` |
+| Inventory Service | `http://localhost:8082` | `/api/inventories/**` |
+| Payment Service | `http://localhost:8084` | `/api/payments/**` |
+| Booking Service | `http://localhost:8085` | `/api/bookings/**` |
+| Notification Service | `http://localhost:8086` | No public REST route; consumes Kafka events |
 
-Responsible for:
+### User Service Endpoints
 
-* Creating tour inventory
-* Looking up inventory by ID or tour package ID
-* Reserving seats
-* Releasing seats when compensation is needed
+| Method | Endpoint | Parameters | Request Body |
+| --- | --- | --- | --- |
+| `POST` | `/api/users` | None | `UserDto` |
+| `GET` | `/api/users/{id}` | Path: `id` | None |
+| `GET` | `/api/users/email/{email}` | Path: `email` | None |
 
-#### Endpoints
+`UserDto` fields:
 
-```http
-POST /api/inventories
-GET /api/inventories/{id}
-GET /api/inventories/by-tour/{tourPackageId}
-POST /api/inventories/reserve?tourPackageId={id}&seats={count}
-POST /api/inventories/release?tourPackageId={id}&seats={count}
+```json
+{
+  "id": 1,
+  "firstname": "Jane",
+  "lastname": "Doe",
+  "email": "jane@example.com",
+  "createdAt": "2026-07-09T16:30:00.000+00:00"
+}
 ```
 
----
+For create requests, send `firstname`, `lastname`, and `email`. The `id` field is generated by the database. The service accepts `createdAt` if supplied.
 
-### Booking Service
+### Inventory Service Endpoints
 
-Responsible for:
+| Method | Endpoint | Parameters | Request Body |
+| --- | --- | --- | --- |
+| `POST` | `/api/inventories` | None | `InventoryDto` |
+| `GET` | `/api/inventories/{id}` | Path: `id` | None |
+| `GET` | `/api/inventories/by-tour/{tourPackageId}` | Path: `tourPackageId` | None |
+| `PUT` | `/api/inventories/{id}` | Path: `id` | `InventoryDto` |
+| `DELETE` | `/api/inventories/{id}` | Path: `id` | None |
+| `POST` | `/api/inventories/reserve` | Query: `tourPackageId`, `seats` | None |
+| `POST` | `/api/inventories/release` | Query: `tourPackageId`, `seats` | None |
 
-* Creating bookings
-* Validating requested payment amount against inventory price
-* Reserving seats through Inventory Service
-* Persisting booking payment requests to an outbox table
-* Publishing payment request events to Kafka
-* Consuming payment result events and updating booking status
+Reserve or release seats with query parameters:
 
-#### Booking Statuses
+```http
+POST /api/inventories/reserve?tourPackageId=1001&seats=2
+POST /api/inventories/release?tourPackageId=1001&seats=2
+```
+
+`InventoryDto` fields:
+
+```json
+{
+  "id": 1,
+  "tourPackageId": 1001,
+  "tourPackageName": "Paris Highlights",
+  "departureDate": "2026-09-15",
+  "price": 1299.99,
+  "totalCapacity": 30,
+  "availableSpots": 24
+}
+```
+
+For create and update requests, send `tourPackageId`, `tourPackageName`, `departureDate`, `price`, `totalCapacity`, and `availableSpots`. The `id` field is generated by the service.
+
+### Booking Service Endpoints
+
+| Method | Endpoint | Parameters | Request Body |
+| --- | --- | --- | --- |
+| `POST` | `/api/bookings` | None | `BookingDto` |
+| `GET` | `/api/bookings/{id}` | Path: `id` | None |
+| `GET` | `/api/bookings` | Query: `userId` | None |
+| `PUT` | `/api/bookings/{id}/cancel` | Path: `id` | None |
+
+Get bookings for a user with a query parameter:
+
+```http
+GET /api/bookings?userId=1
+```
+
+`BookingDto` fields:
+
+```json
+{
+  "id": 1,
+  "userId": 1,
+  "tourId": 1001,
+  "seatsBooked": 2,
+  "amount": 2599.98,
+  "bookingStatus": "PENDING",
+  "createdAt": "2026-07-09T16:30:00.000+00:00",
+  "idempotencyKey": "booking-1-1001-20260709"
+}
+```
+
+For create requests, send `userId`, `tourId`, `seatsBooked`, `amount`, and `idempotencyKey`. The `amount` must equal the tour inventory price multiplied by `seatsBooked`. The `id`, `bookingStatus`, and `createdAt` fields are managed by the service.
+
+Booking statuses:
 
 ```text
 PENDING
@@ -117,29 +179,29 @@ CANCELLED
 PAYMENT_FAILED
 ```
 
-#### Endpoints
+### Payment Service Endpoints
 
-```http
-POST /api/bookings
-GET /api/bookings/{id}
-GET /api/bookings?userId={id}
-PUT /api/bookings/{id}/cancel
+| Method | Endpoint | Parameters | Request Body |
+| --- | --- | --- | --- |
+| `POST` | `/api/payments` | None | `PaymentDto` |
+| `GET` | `/api/payments/{bookingId}` | Path: `bookingId` | None |
+| `PUT` | `/api/payments/{bookingId}/refund` | Path: `bookingId` | None |
+
+`PaymentDto` fields:
+
+```json
+{
+  "id": 1,
+  "bookingId": 1,
+  "amount": 2599.98,
+  "status": "SUCCESS",
+  "createdAt": "2026-07-09T16:30:00"
+}
 ```
 
----
+For create requests, send `bookingId` and `amount`. The `id`, `status`, and `createdAt` fields are managed by the service.
 
-### Payment Service
-
-Responsible for:
-
-* Consuming booking payment request events
-* Processing payments
-* Persisting payment result events to an outbox table
-* Publishing payment result events to Kafka
-* Refunding successful payments
-* Tracking payment status
-
-#### Payment Statuses
+Payment statuses:
 
 ```text
 SUCCESS
@@ -147,338 +209,271 @@ FAILED
 REFUNDED
 ```
 
-#### Endpoints
+### Notification Service Endpoints
 
-```http
-POST /api/payments
-GET /api/payments/{bookingId}
-PUT /api/payments/{bookingId}/refund
-```
+The Notification Service does not expose public REST endpoints. It consumes `payment-result-topic`, loads booking and user details through Feign clients, and sends or logs notification emails.
 
----
+### Service Registry Endpoints
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /` | Eureka dashboard |
+| `GET /eureka/apps` | Registered Eureka applications |
+
+### Actuator Endpoints
+
+All Spring services expose these actuator endpoints on their own service port:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /actuator/health` | Service health |
+| `GET /actuator/info` | Service info |
+| `GET /actuator/metrics` | Metrics index |
+| `GET /actuator/prometheus` | Prometheus scrape endpoint |
+| `GET /actuator/env` | Runtime environment details |
 
 ## Booking Workflow
 
 ```text
-Create Booking Request
+Create booking request
         |
         v
-Validate Tour Inventory and Amount
+Booking Service validates inventory and amount
         |
         v
-Reserve Tour Seats
+Inventory Service reserves seats
         |
         v
-Save Booking + Booking Outbox Event
+Booking Service saves booking and booking outbox event
         |
         v
-Booking Outbox Publisher -> Kafka booking-topic
+Booking outbox publisher sends event to booking-topic
         |
         v
-Payment Service Consumer
+Payment Service consumes payment request
         |
         v
-Save Payment + Payment Outbox Event
+Payment Service saves payment and payment-result outbox event
         |
         v
-Payment Outbox Publisher -> Kafka payment-result-topic
+Payment outbox publisher sends event to payment-result-topic
         |
         v
-Booking Service Payment Result Consumer
+Booking Service consumes payment result and updates booking status
         |
         v
-Update Booking Status
+Notification Service consumes payment result and sends/logs notification
 ```
 
 If payment succeeds, the booking is marked `CONFIRMED`. If payment fails, the booking is marked `PAYMENT_FAILED`.
 
----
+## Kafka Topics
 
-## Transactional Outbox
+| Topic | Purpose |
+| --- | --- |
+| `booking-topic` | Booking Service publishes payment requests; Payment Service consumes them |
+| `payment-result-topic` | Payment Service publishes payment results; Booking and Notification services consume them |
+| `payment-dead-letter-topic` | Payment Service stores failed payment events that need later inspection or replay |
 
-The project uses the transactional outbox pattern in both Booking Service and Payment Service.
+## Reliability Patterns
 
-### Booking Outbox
+### Transactional Outbox
 
-* Booking creation and `PAYMENT_REQUESTED` outbox insert happen in one database transaction.
-* `OutboxPublisher` reads pending booking outbox rows.
-* `BookingProducer` publishes `PaymentEvent` messages to `booking-topic`.
-* Published rows are marked `PUBLISHED`; failed publishes remain `PENDING` with attempt/error details for retry.
+Booking and Payment services use a transactional outbox so local database updates and integration-event creation happen in the same transaction.
 
-### Payment Outbox
+- Booking creation stores a booking row and a payment-request outbox row together.
+- Payment processing stores a payment row and a payment-result outbox row together.
+- Scheduled outbox publishers send pending rows to Kafka.
+- Successfully published rows are marked `PUBLISHED`; failed attempts remain retryable with error details.
 
-* Payment creation/update and payment result outbox insert happen in one database transaction.
-* `OutboxPublisher` reads pending payment outbox rows.
-* `PaymentResultProducer` publishes `PaymentResultEvent` messages to `payment-result-topic`.
-* Published rows are marked `PUBLISHED`; failed publishes remain `PENDING` with attempt/error details for retry.
+### Idempotent Consumers
 
-Current topics:
+Kafka provides at-least-once delivery, so consumers use event IDs and a `processed_events` table to prevent duplicate business actions.
+
+- Each event carries a unique `eventId`.
+- Consumers check whether the event was already processed.
+- Duplicate events are skipped safely.
+- The duplicate check, business update, and processed-event insert happen in one database transaction.
+
+## Database Layout
+
+The Compose MySQL container creates these schemas:
 
 ```text
-booking-topic
-payment-result-topic
+travel_app_user_db
+travel_app_inventory_db
+travel_app_booking_db
+travel_app_payment_db
 ```
 
----
+Each service owns its schema. Tables are managed from JPA entities using Hibernate `ddl-auto: update`.
 
-## Idempotent Kafka Consumers
-
-The project implements **exactly-once semantic** message processing despite Kafka's at-least-once delivery guarantee through event deduplication.
-
-### How It Works
-
-1. **Event ID Generation**: Each event carries a unique UUID (`eventId`) from source to consumer
-2. **Duplicate Detection**: Consumers check the `processed_events` table before processing
-3. **Atomic Processing**: Consumer operations (check + process + record) happen in a single database transaction
-4. **Replay Safety**: If a message is replayed, the duplicate check prevents repeated business logic execution
-
-### Consumer Implementation
-
-**Booking Service - PaymentResultConsumer**:
-- Consumes payment results from `payment-result-topic`
-- Checks if `PaymentResultEvent.eventId` was already processed
-- Updates booking status if new event; skips if duplicate
-
-**Payment Service - PaymentConsumer**:
-- Consumes payment requests from `booking-topic`
-- Checks if `PaymentEvent.eventId` was already processed
-- Creates payment record if new event; skips if duplicate
-
-### Without This: What Could Go Wrong
-
-- **Duplicate Bookings**: Message replayed → 2 identical bookings created
-- **Double Charges**: Payment processed twice due to Kafka rebalancing
-- **Inconsistent State**: Some services processed event, others didn't
-
-### With This: Guaranteed Safety
-
-- First delivery → processed normally
-- All subsequent deliveries of same message → safely ignored
-- System state remains consistent regardless of message replays
-
----
+Booking and Payment schemas include outbox tables and `processed_events` tables for reliable publishing and duplicate detection.
 
 ## Technology Stack
 
-| Category          | Technology           |
-| ----------------- | -------------------- |
-| Language          | Java 21              |
-| Framework         | Spring Boot          |
-| Service Discovery | Netflix Eureka       |
-| API Gateway       | Spring Cloud Gateway |
-| Communication     | OpenFeign, Kafka     |
-| Database          | MySQL                |
-| Build Tool        | Maven                |
-| Messaging         | Kafka                |
-| Reliability       | Transactional Outbox |
-| Resilience        | Resilience4j         |
-| Containerization  | Docker (Planned)     |
-| Cache             | Redis (Planned)      |
+| Category | Technology |
+| --- | --- |
+| Language | Java 21 |
+| Framework | Spring Boot |
+| Cloud | Spring Cloud, Netflix Eureka, Spring Cloud Gateway, OpenFeign |
+| Messaging | Apache Kafka, Spring Kafka |
+| Database | MySQL |
+| Persistence | Spring Data JPA, Hibernate |
+| Reliability | Transactional outbox, idempotent consumers, dead-letter topic |
+| Resilience | Resilience4j |
+| Observability | Spring Boot Actuator, Micrometer, Prometheus, Grafana, Zipkin |
+| Email testing | MailHog |
+| Build | Maven |
+| Local infrastructure | Docker Compose |
 
----
-
-## Running the Project
+## Local Development
 
 ### Prerequisites
 
-* Java 21
-* Maven
-* MySQL
-* Kafka running on `localhost:9092`
+- Java 21
+- Maven
+- Docker Desktop or Docker Engine with Compose
 
 ### Start Infrastructure
 
-1. Start MySQL.
-2. Start Kafka.
-3. Start Eureka Server.
+From the repository root:
+
+```powershell
+docker compose up -d
+```
+
+This starts:
+
+| Tool | URL or Port |
+| --- | --- |
+| MySQL | `localhost:3306` |
+| Kafka | `localhost:9092` |
+| Kafka UI | `http://localhost:8090` |
+| Zipkin | `http://localhost:9411` |
+| MailHog SMTP | `localhost:1025` |
+| MailHog UI | `http://localhost:8025` |
+| Prometheus | `http://localhost:9090` |
+| Grafana | `http://localhost:3000` |
+
+Grafana credentials:
+
+```text
+admin / admin
+```
 
 ### Start Services
 
-Run each service from its own directory:
+Run each service in a separate terminal:
 
-```bash
-# Service Registry
+```powershell
 cd service-registry
 mvn spring-boot:run
+```
 
-# API Gateway
-cd ../api-gateway
-mvn spring-boot:run
-
-# User Service
-cd ../user-service
-mvn spring-boot:run
-
-# Inventory Service
-cd ../inventory-service
-mvn spring-boot:run
-
-# Booking Service
-cd ../booking-service
-mvn spring-boot:run
-
-# Payment Service
-cd ../payment-service
+```powershell
+cd api-gateway
 mvn spring-boot:run
 ```
 
-### Verify Eureka Registration
+```powershell
+cd user-service
+mvn spring-boot:run
+```
 
-Open:
+```powershell
+cd inventory-service
+mvn spring-boot:run
+```
+
+```powershell
+cd booking-service
+mvn spring-boot:run
+```
+
+```powershell
+cd payment-service
+mvn spring-boot:run
+```
+
+```powershell
+cd notification-service
+mvn spring-boot:run
+```
+
+Recommended startup order:
 
 ```text
-http://localhost:8761
+1. Docker infrastructure
+2. service-registry
+3. api-gateway
+4. user-service
+5. inventory-service
+6. booking-service
+7. payment-service
+8. notification-service
 ```
 
-You should see the services registered successfully.
+### Verify Local Runtime
 
----
-
-## Database Design
-
-Each microservice owns its own database schema.
-
-```text
-mysql
-|-- user database
-|-- inventory database
-|-- booking database
-|   |-- booking
-|   |-- outbox_event
-|   `-- processed_events (for idempotency)
-`-- payment database
-    |-- payment
-    |-- outbox_event
-    |-- dead_letter_payment_event
-    `-- processed_events (for idempotency)
-```
-
-This keeps service data isolated and allows each service to publish its own reliable integration events.
-
-### Idempotency Tracking
-
-The `processed_events` table in Booking Service and Payment Service tracks successfully processed Kafka messages:
-
-- **event_id (PRIMARY KEY)**: Uniquely identifies each event (UUID)
-- **processed_at**: Timestamp when the event was processed
-- Prevents duplicate processing by using database constraint enforcement
-
----
+- Eureka dashboard: `http://localhost:8761`
+- Gateway base URL: `http://localhost:8083`
+- Kafka UI: `http://localhost:8090`
+- Prometheus targets: `http://localhost:9090/targets`
+- Zipkin traces: `http://localhost:9411`
+- MailHog inbox: `http://localhost:8025`
+- Grafana: `http://localhost:3000`
 
 ## Testing
 
-Run tests for an individual service from that service directory:
+Run tests for a single service from that service directory:
 
-```bash
+```powershell
 mvn test
 ```
 
 Example:
 
-```bash
+```powershell
 cd payment-service
 mvn test
 ```
 
----
+There is no root Maven aggregator in this repository, so run service tests individually.
 
-## Future Enhancements
+## Useful Documentation
 
-### Distributed Transactions
-
-* Reservation timeout handling
-* Additional compensating actions
-* Stronger idempotency around event consumers
-
-### Event-Driven Architecture
-
-* Notification events
-* Dead-letter topics
-* Outbox cleanup/archival
-* Consumer retry policies
-
-### Caching
-
-* Redis for frequently accessed tour data
-* Reduced database load
-* Improved response times
-
-### Security
-
-* JWT authentication
-* Role-based access control
-* API Gateway authorization
-
-### Observability
-
-* Prometheus
-* Grafana
-* Distributed tracing
-
-### Deployment
-
-* Docker Compose
-* Kubernetes
-* CI/CD pipeline
-
----
-
-## Learning Objectives
-
-This project was built to gain hands-on experience with:
-
-* Microservice architecture
-* Spring Cloud ecosystem
-* Service discovery
-* API Gateway patterns
-* OpenFeign service-to-service calls
-* Kafka-based event-driven systems
-* Transactional outbox pattern
-* **Event deduplication and idempotent consumers**
-* **Exactly-once semantics with at-least-once delivery**
-* Saga-style workflow design
-* Resilience patterns
-* Backend system design
-* Database per service pattern
-
----
+- `DOCKER_INFRASTRUCTURE.md` - local infrastructure details
+- `KAFKA_IDEMPOTENCY.md` - Kafka idempotency design
+- `README_IDEMPOTENCY.md` - idempotent consumer implementation notes
+- `CONSUMER_QUICK_REFERENCE.md` - consumer behavior quick reference
+- `IMPLEMENTATION_SUMMARY.md` - implementation notes and decisions
+- `DELIVERABLES.md` - project deliverables summary
 
 ## Current Status
 
-### Completed
+Completed:
 
-* API Gateway
-* Eureka Service Registry
-* User Service
-* Inventory Service
-* Booking Service
-* Payment Service
-* OpenFeign integration
-* Booking workflow with full transaction lifecycle
-* Seat reservation and release logic
-* Kafka payment request and payment result topics
-* Booking outbox publisher with retry logic
-* Payment outbox publisher with retry logic
-* Payment result consumer that updates booking status
-* **Idempotent Kafka consumers** with event deduplication
-* ProcessedEvents table for duplicate detection in both Payment and Booking services
-* JPA entity-based database schema management (Hibernate ddl-auto)
-* Service-level unit tests (32+ tests passing)
-* Dead letter queue for failed payment events
+- Eureka service registry
+- API gateway routing
+- User, Inventory, Booking, Payment, and Notification services
+- Database-per-service setup with MySQL
+- Kafka payment request and payment result workflow
+- Transactional outbox publishers in Booking and Payment services
+- Idempotent Kafka consumers using `processed_events`
+- Dead-letter handling for payment events
+- Docker Compose infrastructure
+- Kafka UI, Zipkin, MailHog, Prometheus, and Grafana local tooling
+- Actuator Prometheus metrics endpoints for services
 
-### Architectural Decisions
+Potential next steps:
 
-**Schema Management**: All services use JPA entities with Hibernate's `ddl-auto: update` for schema management. This provides consistency across the codebase - all tables (business entities and idempotency tracking tables) are defined as JPA entities rather than manual SQL migrations.
+- Add authentication and authorization at the gateway
+- Add integration tests for cross-service booking and payment flows
+- Add outbox cleanup or archival jobs
+- Add CI pipeline for service-level tests
+- Add Kubernetes manifests or Helm charts for deployment
 
-### In Progress
+## Purpose
 
-* Notification Service enhancements
-* Redis caching for frequently accessed tour data
-* Dockerization with Docker Compose
-* Production-grade observability (Prometheus, Grafana, distributed tracing)
-
----
-
-## Author
-
-Backend microservices project built to strengthen expertise in distributed systems, cloud-native applications, and modern Java backend development.
+This project is a hands-on backend systems project focused on microservice architecture, Spring Cloud, service discovery, gateway routing, Kafka event workflows, transactional outbox reliability, idempotent consumers, observability, and database-per-service design.
