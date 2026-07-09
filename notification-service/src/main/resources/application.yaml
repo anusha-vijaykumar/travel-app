@@ -15,6 +15,8 @@ spring:
   mail:
     host: localhost
     port: 1025
+  zipkin:
+    base-url: http://localhost:9411
 notification:
   email:
     from: no-reply@travel-app.local
@@ -35,3 +37,19 @@ eureka:
     registry-fetch-interval-seconds: 5
     instance-info-replication-interval-seconds: 10
   fetch-timeout-ms: 5000
+
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,env
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+

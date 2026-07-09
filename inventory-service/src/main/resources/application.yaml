@@ -3,6 +3,8 @@ server:
 spring:
   application:
     name: inventory-service
+  zipkin:
+    base-url: http://localhost:9411
   datasource:
     url: jdbc:mysql://localhost:3306/travel_app_inventory_db
     username: root
@@ -14,6 +16,7 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
+
 eureka:
   instance:
     appname: inventory-service
@@ -31,6 +34,18 @@ eureka:
     instance-info-replication-interval-seconds: 10
   fetch-timeout-ms: 5000
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,env
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
 
 
 

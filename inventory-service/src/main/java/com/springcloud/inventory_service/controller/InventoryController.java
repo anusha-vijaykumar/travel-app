@@ -1,7 +1,6 @@
 package com.springcloud.inventory_service.controller;
 
 import com.springcloud.inventory_service.dto.InventoryDto;
-import com.springcloud.inventory_service.entity.Inventory;
 import com.springcloud.inventory_service.service.InventoryService;
 import lombok.AllArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -29,6 +28,18 @@ public class InventoryController {
     public ResponseEntity<InventoryDto> createInventory(@RequestBody InventoryDto inventoryDto){
         InventoryDto createdInventory = inventoryService.createInventory(inventoryDto);
         return ResponseEntity.ok(createdInventory);
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<InventoryDto> updateInventory(@PathVariable Long id, @RequestBody InventoryDto inventoryDto){
+        InventoryDto updatedInventory = inventoryService.updateInventory(id, inventoryDto);
+        return ResponseEntity.ok(updatedInventory);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteInventory(@PathVariable Long id){
+        inventoryService.deleteInventory(id);
+        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/reserve")

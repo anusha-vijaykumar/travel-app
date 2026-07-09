@@ -22,6 +22,13 @@ spring:
           uri: http://localhost:8084
           predicates:
             - Path=/api/payments/**
+  zipkin:
+    base-url: http://localhost:9411
+  # Using in-memory rate limiter for gateway (no external Redis required)
+  # redis: # kept for backward compatibility if needed
+  #  host: localhost
+  #  port: 6379
+
 eureka:
   instance:
     appname: api-gateway
@@ -38,3 +45,18 @@ eureka:
     registry-fetch-interval-seconds: 5
     instance-info-replication-interval-seconds: 10
   fetch-timeout-ms: 5000
+
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,env
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+

@@ -3,6 +3,8 @@ server:
 spring:
   application:
     name: payment-service
+  zipkin:
+    base-url: http://localhost:9411
   datasource:
     url: jdbc:mysql://localhost:3306/travel_app_payment_db
     username: root
@@ -69,3 +71,16 @@ resilience4j:
         slowCallDurationThreshold: 3s  # What qualifies as a "slow call"
         waitDurationInOpenState: 15s   # Keep circuit open for 15 seconds before trying again
         permittedNumberOfCallsInHalfOpenState: 3
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,env
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
