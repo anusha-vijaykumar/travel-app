@@ -7,19 +7,19 @@ spring:
     gateway:
       routes:
         - id: user-service
-          uri: http://localhost:8081
+          uri: lb://user-service
           predicates:
             - Path=/api/users/**
         - id: inventory-service
-          uri: http://localhost:8082
+          uri: lb://inventory-service
           predicates:
             - Path=/api/inventories/**
         - id: booking-service
-          uri: http://localhost:8085
+          uri: lb://booking-service
           predicates:
             - Path=/api/bookings/**
         - id: payment-service
-          uri: http://localhost:8084
+          uri: lb://payment-service
           predicates:
             - Path=/api/payments/**
   zipkin:
@@ -59,4 +59,3 @@ management:
     export:
       prometheus:
         enabled: true
-
