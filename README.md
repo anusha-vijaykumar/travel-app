@@ -59,6 +59,7 @@ A Java/Spring microservices travel booking platform. The system supports user lo
 | Booking Service | `8085` | Booking lifecycle, inventory calls, booking outbox, payment-result consumer |
 | Payment Service | `8084` | Payment processing, refunds, payment outbox, payment-request consumer |
 | Notification Service | `8086` | Consumes payment result events and sends/logs notification emails |
+| MCP Server | `8091` | Exposes travel platform operations as MCP tools for chat apps and agents |
 
 ## API Endpoints
 
@@ -79,6 +80,7 @@ Each service can also be called directly on its own port during local developmen
 | Payment Service | `http://localhost:8084` | `/api/payments/**` |
 | Booking Service | `http://localhost:8085` | `/api/bookings/**` |
 | Notification Service | `http://localhost:8086` | No public REST route; consumes Kafka events |
+| MCP Server | `http://localhost:8091` | MCP Streamable HTTP endpoint at `/mcp` |
 
 ### User Service Endpoints
 
@@ -401,6 +403,11 @@ cd notification-service
 mvn spring-boot:run
 ```
 
+```powershell
+cd mcp-server
+mvn spring-boot:run
+```
+
 Recommended startup order:
 
 ```text
@@ -412,6 +419,7 @@ Recommended startup order:
 6. booking-service
 7. payment-service
 8. notification-service
+9. mcp-server
 ```
 
 ### Verify Local Runtime
@@ -449,6 +457,7 @@ There is no root Maven aggregator in this repository, so run service tests indiv
 - `CONSUMER_QUICK_REFERENCE.md` - consumer behavior quick reference
 - `IMPLEMENTATION_SUMMARY.md` - implementation notes and decisions
 - `DELIVERABLES.md` - project deliverables summary
+- `mcp-server/README.md` - MCP server usage and chat app connection notes
 
 ## Current Status
 

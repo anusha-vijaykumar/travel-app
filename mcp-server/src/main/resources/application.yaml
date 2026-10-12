@@ -1,0 +1,26 @@
+server:
+  port: 8091
+
+spring:
+  application:
+    name: travel-mcp-server
+  ai:
+    mcp:
+      server:
+        name: travel-booking-mcp-server
+        version: 0.0.1
+        type: SYNC
+        instructions: "Use these tools to read and mutate the local travel booking platform through its API gateway."
+        streamable-http:
+          enabled: true
+        stdio: false
+
+travel:
+  api:
+    base-url: http://localhost:8083
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
