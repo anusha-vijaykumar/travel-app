@@ -10,6 +10,7 @@ spring:
         name: travel-booking-mcp-server
         version: 0.0.1
         type: SYNC
+        protocol: STREAMABLE
         instructions: "Use these tools to read and mutate the local travel booking platform through its API gateway."
         streamable-http:
           enabled: true
