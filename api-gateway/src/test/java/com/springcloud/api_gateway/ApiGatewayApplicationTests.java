@@ -32,8 +32,8 @@ class ApiGatewayApplicationTests {
         Map<String, String> routeUrisById = IntStream.range(0, 4)
                 .boxed()
                 .collect(Collectors.toMap(
-                        index -> properties.getProperty("spring.cloud.gateway.routes[" + index + "].id"),
-                        index -> properties.getProperty("spring.cloud.gateway.routes[" + index + "].uri")
+                        index -> properties.getProperty("spring.cloud.gateway.server.webflux.routes[" + index + "].id"),
+                        index -> properties.getProperty("spring.cloud.gateway.server.webflux.routes[" + index + "].uri")
                 ));
 
         assertThat(routeUrisById)
