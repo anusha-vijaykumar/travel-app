@@ -1,6 +1,7 @@
 package com.springcloud.booking_service.service;
 
 import com.springcloud.booking_service.client.InventoryFeignClient;
+import com.springcloud.booking_service.client.PaymentFeignClient;
 import com.springcloud.booking_service.dto.BookingDto;
 import com.springcloud.booking_service.dto.InventoryDto;
 import com.springcloud.booking_service.dto.PaymentEvent;
@@ -32,11 +33,13 @@ class BookingServiceImplTest {
 
     private final BookingRepository bookingRepository = mock(BookingRepository.class);
     private final InventoryFeignClient inventoryFeignClient = mock(InventoryFeignClient.class);
+    private final PaymentFeignClient paymentFeignClient = mock(PaymentFeignClient.class);
     private final OutboxEventService outboxEventService = mock(OutboxEventService.class);
     private final PlatformTransactionManager transactionManager = mockTransactionManager();
     private final BookingServiceImpl bookingService = new BookingServiceImpl(
             bookingRepository,
             inventoryFeignClient,
+            paymentFeignClient,
             outboxEventService,
             transactionManager
     );
@@ -70,7 +73,7 @@ class BookingServiceImplTest {
     @Test
     void cancelBookingMarksBookingCancelled() {
         Booking booking = booking(1L, BookingStatus.PENDING);
-        when(bookingRepository.getReferenceById(1L)).thenReturn(booking);
+        when(bookingRepository.findById(1L)).thenReturn(Optional.of(booking));
 
         bookingService.cancelBookingById(1L);
 
@@ -79,14 +82,96 @@ class BookingServiceImplTest {
     }
 
     @Test
-    void updateBookingStatusByIdUpdatesExistingBooking() {
+    void cancelConfirmedBookingReleasesSeatsAndRefundsPayment() {
+        Booking booking = booking(1L, BookingStatus.CONFIRMED);
+        when(bookingRepository.findById(1L)).thenReturn(Optional.of(booking));
+        when(inventoryFeignClient.releaseSeats(10L, 2)).thenReturn(ResponseEntity.ok().build());
+        when(paymentFeignClient.refundPayment(1L)).thenReturn(ResponseEntity.ok("refunded"));
+
+        bookingService.cancelBookingById(1L);
+
+        assertThat(booking.getBookingStatus()).isEqualTo(BookingStatus.CANCELLED);
+        verify(inventoryFeignClient).releaseSeats(10L, 2);
+        verify(paymentFeignClient).refundPayment(1L);
+        verify(bookingRepository).save(booking);
+    }
+
+    @Test
+    void cancelPaymentRequestedBookingOnlyReleasesSeats() {
+        Booking booking = booking(1L, BookingStatus.PAYMENT_REQUESTED);
+        when(bookingRepository.findById(1L)).thenReturn(Optional.of(booking));
+        when(inventoryFeignClient.releaseSeats(10L, 2)).thenReturn(ResponseEntity.ok().build());
+
+        bookingService.cancelBookingById(1L);
+
+        assertThat(booking.getBookingStatus()).isEqualTo(BookingStatus.CANCELLED);
+        verify(inventoryFeignClient).releaseSeats(10L, 2);
+        verify(paymentFeignClient, never()).refundPayment(any());
+        verify(bookingRepository).save(booking);
+    }
+
+    @Test
+    void cancelAlreadyCancelledBookingDoesNothing() {
+        Booking booking = booking(1L, BookingStatus.CANCELLED);
+        when(bookingRepository.findById(1L)).thenReturn(Optional.of(booking));
+
+        bookingService.cancelBookingById(1L);
+
+        verify(inventoryFeignClient, never()).releaseSeats(any(), any());
+        verify(paymentFeignClient, never()).refundPayment(any());
+        verify(bookingRepository, never()).save(any(Booking.class));
+    }
+
+    @Test
+    void cancelConfirmedBookingDoesNotSaveWhenInventoryReleaseFails() {
+        Booking booking = booking(1L, BookingStatus.CONFIRMED);
+        when(bookingRepository.findById(1L)).thenReturn(Optional.of(booking));
+        when(inventoryFeignClient.releaseSeats(10L, 2)).thenReturn(ResponseEntity.internalServerError().build());
+
+        assertThatThrownBy(() -> bookingService.cancelBookingById(1L))
+                .isInstanceOf(ResponseStatusException.class)
+                .extracting("statusCode")
+                .isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+
+        assertThat(booking.getBookingStatus()).isEqualTo(BookingStatus.CONFIRMED);
+        verify(paymentFeignClient, never()).refundPayment(any());
+        verify(bookingRepository, never()).save(any(Booking.class));
+    }
+
+    @Test
+    void updateBookingStatusByIdReleasesSeatsWhenPaymentFails() {
         Booking booking = booking(1L, BookingStatus.PENDING);
         when(bookingRepository.findById(1L)).thenReturn(Optional.of(booking));
+        when(inventoryFeignClient.releaseSeats(10L, 2)).thenReturn(ResponseEntity.ok().build());
 
         bookingService.updateBookingStatusById(1L, "PAYMENT_FAILED");
 
         assertThat(booking.getBookingStatus()).isEqualTo(BookingStatus.PAYMENT_FAILED);
         verify(bookingRepository).save(booking);
+        verify(inventoryFeignClient).releaseSeats(10L, 2);
+    }
+
+    @Test
+    void updateBookingStatusByIdDoesNotReleaseSeatsWhenPaymentSucceeds() {
+        Booking booking = booking(1L, BookingStatus.PAYMENT_REQUESTED);
+        when(bookingRepository.findById(1L)).thenReturn(Optional.of(booking));
+
+        bookingService.updateBookingStatusById(1L, "CONFIRMED");
+
+        assertThat(booking.getBookingStatus()).isEqualTo(BookingStatus.CONFIRMED);
+        verify(bookingRepository).save(booking);
+        verify(inventoryFeignClient, never()).releaseSeats(any(), any());
+    }
+
+    @Test
+    void updateBookingStatusByIdDoesNotReleaseSeatsWhenAlreadyPaymentFailed() {
+        Booking booking = booking(1L, BookingStatus.PAYMENT_FAILED);
+        when(bookingRepository.findById(1L)).thenReturn(Optional.of(booking));
+
+        bookingService.updateBookingStatusById(1L, "PAYMENT_FAILED");
+
+        verify(bookingRepository).save(booking);
+        verify(inventoryFeignClient, never()).releaseSeats(any(), any());
     }
 
     @Test

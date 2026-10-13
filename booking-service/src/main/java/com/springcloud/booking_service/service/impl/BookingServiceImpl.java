@@ -1,6 +1,7 @@
 package com.springcloud.booking_service.service.impl;
 
 import com.springcloud.booking_service.client.InventoryFeignClient;
+import com.springcloud.booking_service.client.PaymentFeignClient;
 import com.springcloud.booking_service.dto.BookingDto;
 import com.springcloud.booking_service.dto.InventoryDto;
 import com.springcloud.booking_service.dto.PaymentEvent;
@@ -26,15 +27,18 @@ public class BookingServiceImpl implements BookingService {
 
     private final BookingRepository bookingRepository;
     private final InventoryFeignClient inventoryFeignClient;
+    private final PaymentFeignClient paymentFeignClient;
     private final OutboxEventService outboxEventService;
     private final TransactionTemplate transactionTemplate;
 
     public BookingServiceImpl(BookingRepository bookingRepository,
                               InventoryFeignClient inventoryFeignClient,
+                              PaymentFeignClient paymentFeignClient,
                               OutboxEventService outboxEventService,
                               PlatformTransactionManager transactionManager) {
         this.bookingRepository = bookingRepository;
         this.inventoryFeignClient = inventoryFeignClient;
+        this.paymentFeignClient = paymentFeignClient;
         this.outboxEventService = outboxEventService;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
@@ -55,14 +59,32 @@ public class BookingServiceImpl implements BookingService {
 
     @Override
     public void cancelBookingById(Long id) {
-        Booking booking = bookingRepository.getReferenceById(id);
+        Booking booking = bookingRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found for ID: " + id));
+
+        BookingStatus currentStatus = booking.getBookingStatus();
+        if (currentStatus == BookingStatus.CANCELLED) {
+            return;
+        }
+
+        if (shouldReleaseSeatsOnCancellation(currentStatus)) {
+            releaseSeatsOrThrow(booking.getTourId(), booking.getSeatsBooked(), "Failed to release seats for cancelled booking.");
+        }
+
+        if (shouldRefundPaymentOnCancellation(currentStatus)) {
+            refundPaymentOrThrow(id);
+        }
+
         booking.setBookingStatus(BookingStatus.CANCELLED);
         bookingRepository.save(booking);
     }
 
     @Override
     public void updateBookingStatusById(Long id, String status) {
-        updateBookingStatusInTransaction(id, BookingStatus.valueOf(status));
+        ReleaseSeatsCommand releaseSeatsCommand = updateBookingStatusInTransaction(id, BookingStatus.valueOf(status));
+        if (releaseSeatsCommand != null) {
+            releaseSeatsOrThrow(releaseSeatsCommand.tourId(), releaseSeatsCommand.seatsBooked());
+        }
     }
 
     @Override
@@ -143,15 +165,23 @@ public class BookingServiceImpl implements BookingService {
         return bookingRepository.save(newBooking);
     }
 
-    private void updateBookingStatusInTransaction(Long bookingId, BookingStatus status) {
-        transactionTemplate.executeWithoutResult(transactionStatus -> updateBookingStatus(bookingId, status));
+    private ReleaseSeatsCommand updateBookingStatusInTransaction(Long bookingId, BookingStatus status) {
+        return transactionTemplate.execute(transactionStatus -> updateBookingStatus(bookingId, status));
     }
 
-    private void updateBookingStatus(Long bookingId, BookingStatus status) {
-        bookingRepository.findById(bookingId).ifPresent(b -> {
-            b.setBookingStatus(status);
-            bookingRepository.save(b);
-        });
+    private ReleaseSeatsCommand updateBookingStatus(Long bookingId, BookingStatus status) {
+        return bookingRepository.findById(bookingId)
+                .map(booking -> {
+                    BookingStatus previousStatus = booking.getBookingStatus();
+                    booking.setBookingStatus(status);
+                    bookingRepository.save(booking);
+
+                    if (shouldReleaseSeats(previousStatus, status)) {
+                        return new ReleaseSeatsCommand(booking.getTourId(), booking.getSeatsBooked());
+                    }
+                    return null;
+                })
+                .orElse(null);
     }
 
     private void releaseReservedSeats(BookingDto booking) {
@@ -162,11 +192,47 @@ public class BookingServiceImpl implements BookingService {
         }
     }
 
+    private void releaseSeatsOrThrow(Long tourId, Integer seatsBooked) {
+        releaseSeatsOrThrow(tourId, seatsBooked, "Failed to release seats after payment failure.");
+    }
+
+    private void releaseSeatsOrThrow(Long tourId, Integer seatsBooked, String failureMessage) {
+        ResponseEntity<Void> response = inventoryFeignClient.releaseSeats(tourId, seatsBooked);
+        if (response == null || !response.getStatusCode().is2xxSuccessful()) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, failureMessage);
+        }
+    }
+
+    private void refundPaymentOrThrow(Long bookingId) {
+        ResponseEntity<String> response = paymentFeignClient.refundPayment(bookingId);
+        if (response == null || !response.getStatusCode().is2xxSuccessful()) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to refund payment for cancelled booking.");
+        }
+    }
+
+    private boolean shouldReleaseSeats(BookingStatus previousStatus, BookingStatus nextStatus) {
+        return nextStatus == BookingStatus.PAYMENT_FAILED
+                && previousStatus != BookingStatus.PAYMENT_FAILED
+                && previousStatus != BookingStatus.CANCELLED;
+    }
+
+    private boolean shouldReleaseSeatsOnCancellation(BookingStatus status) {
+        return status == BookingStatus.PAYMENT_REQUESTED
+                || status == BookingStatus.CONFIRMED;
+    }
+
+    private boolean shouldRefundPaymentOnCancellation(BookingStatus status) {
+        return status == BookingStatus.CONFIRMED;
+    }
+
     private void handleDuplicateRequest(String key) {
         Booking existing = bookingRepository.getByIdempotencyKey(key);
         if (existing.getBookingStatus() != BookingStatus.CONFIRMED) {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Your booking is currently processing.");
         }
+    }
+
+    private record ReleaseSeatsCommand(Long tourId, Integer seatsBooked) {
     }
 
 }

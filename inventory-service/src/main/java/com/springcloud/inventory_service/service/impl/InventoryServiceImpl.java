@@ -9,6 +9,7 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.http.HttpStatus;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -72,25 +73,39 @@ public class InventoryServiceImpl implements InventoryService {
     }
 
     @Override
+    @Transactional
+    @CacheEvict(value = "inventory", allEntries = true)
     public void reserveSeats(Long tourPackageId, Integer seats) {
+        validateSeatCount(seats);
+
+        int rowsUpdated = inventoryRepository.reserveSeatsIfAvailable(tourPackageId, seats);
+        if (rowsUpdated == 1) {
+            return;
+        }
+
         Inventory inventory = inventoryRepository.getInventoryByTourPackageId(tourPackageId);
         if (inventory == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Inventory not found for tourPackageId " + tourPackageId);
         }
-        if (inventory.getAvailableSpots() < seats) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Not enough available spots for tourPackageId " + tourPackageId);
-        }
-        inventory.setAvailableSpots(inventory.getAvailableSpots() - seats);
-        inventoryRepository.save(inventory);
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Not enough available spots for tourPackageId " + tourPackageId);
     }
 
     @Override
+    @CacheEvict(value = "inventory", allEntries = true)
     public void releaseSeats(Long tourPackageId, Integer seats) {
+        validateSeatCount(seats);
+
         Inventory inventory = inventoryRepository.getInventoryByTourPackageId(tourPackageId);
         if (inventory == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Inventory not found for tourPackageId " + tourPackageId);
         }
         inventory.setAvailableSpots(inventory.getAvailableSpots() + seats);
         inventoryRepository.save(inventory);
+    }
+
+    private void validateSeatCount(Integer seats) {
+        if (seats == null || seats <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Seat count must be greater than zero.");
+        }
     }
 }

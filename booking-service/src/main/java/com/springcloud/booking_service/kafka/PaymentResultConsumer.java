@@ -25,10 +25,6 @@ public class PaymentResultConsumer {
             topics = "${spring.kafka.payment-result-topic.name}",
             groupId = "${spring.kafka.consumer.group-id}",
             containerFactory = "paymentResultKafkaListenerContainerFactory")
-    @KafkaListener(
-            topics = "${spring.kafka.payment-result-topic.name}",
-            groupId = "${spring.kafka.consumer.group-id}",
-            containerFactory = "paymentResultKafkaListenerContainerFactory")
     @Transactional
     public void consume(PaymentResultEvent paymentResultEvent) {
         LOGGER.info("Payment result received: {}", paymentResultEvent);

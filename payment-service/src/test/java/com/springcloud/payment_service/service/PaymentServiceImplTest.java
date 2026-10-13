@@ -88,6 +88,16 @@ class PaymentServiceImplTest {
     }
 
     @Test
+    void refundPaymentDoesNothingWhenAlreadyRefunded() {
+        Payment payment = new Payment(1L, 2L, BigDecimal.valueOf(100), PaymentStatus.REFUNDED, LocalDateTime.now());
+        when(paymentRepository.getPaymentByBookingId(2L)).thenReturn(payment);
+
+        paymentService.refundPaymentForBookingId(2L);
+
+        verify(paymentRepository, never()).save(any(Payment.class));
+    }
+
+    @Test
     void refundPaymentThrowsWhenPaymentIsMissing() {
         when(paymentRepository.getPaymentByBookingId(2L)).thenReturn(null);
 

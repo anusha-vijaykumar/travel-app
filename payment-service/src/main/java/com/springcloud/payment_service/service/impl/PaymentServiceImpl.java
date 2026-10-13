@@ -91,6 +91,10 @@ public class PaymentServiceImpl implements PaymentService {
     @Override
     public void refundPaymentForBookingId(Long bookId) {
         Payment payment = paymentRepository.getPaymentByBookingId(bookId);
+        if (payment != null && payment.getStatus() == PaymentStatus.REFUNDED) {
+            return;
+        }
+
         if (payment != null && payment.getStatus() == PaymentStatus.SUCCESS) {
             payment.setStatus(PaymentStatus.REFUNDED);
             paymentRepository.save(payment);
